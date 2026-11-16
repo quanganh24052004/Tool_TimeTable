@@ -1,0 +1,136 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-grey-100 text-grey-800 font-sans;
+  }
+}
+
+@layer components {
+  /* Content Card (Panel từng bước) - 4.2 */
+  .card-tactile {
+    @apply rounded-card border-2 border-grey-300 bg-white p-4 shadow-tactile-card lg:p-5;
+  }
+
+  /* Badge số bước tròn (1, 2, 3, 4) - 4.2 */
+  .step-badge {
+    @apply inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full border-2 border-primary-darker bg-primary-main text-xs font-bold text-white shadow-tactile-primary-sm;
+  }
+
+  /* Tactile Buttons - 4.1 & 1.1 */
+  .btn-tactile {
+    @apply inline-flex min-h-[44px] select-none items-center justify-center gap-2 rounded-2xl border-2 font-semibold transition-all duration-150 ease-spring disabled:translate-y-0 disabled:cursor-not-allowed disabled:border-grey-300 disabled:bg-grey-200 disabled:text-grey-500 disabled:shadow-tactile-none;
+  }
+
+  /* Primary CTA (6px base) */
+  .btn-tactile-primary {
+    @apply btn-tactile h-14 w-full border-primary-darker bg-primary-main text-base font-bold text-white shadow-tactile-primary-lg hover:brightness-105 active:translate-y-[6px] active:shadow-tactile-none;
+  }
+
+  /* Primary Tab / Pill (4px base) */
+  .btn-tactile-primary-md {
+    @apply btn-tactile border-primary-darker bg-primary-main px-3.5 py-2 text-sm text-white shadow-tactile-primary-md hover:brightness-105 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Secondary / Info Button (4px base) */
+  .btn-tactile-info {
+    @apply btn-tactile border-info-dark bg-info-lighter px-3.5 py-2 text-sm text-info-darker shadow-tactile-info-md hover:bg-info-light/60 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Danger Button (4px base) */
+  .btn-tactile-danger {
+    @apply btn-tactile border-error-dark bg-error-lighter px-3 py-2 text-sm text-error-darker shadow-tactile-error-md hover:bg-error-light/60 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Success Button (4px base) */
+  .btn-tactile-success {
+    @apply btn-tactile border-success-dark bg-success-lighter px-3.5 py-2 text-sm text-success-darker shadow-tactile-success-md hover:bg-success-light/60 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Neutral / Grey Button (4px base) */
+  .btn-tactile-neutral {
+    @apply btn-tactile border-grey-300 bg-white px-3.5 py-2 text-sm text-grey-800 shadow-tactile-grey-md hover:bg-grey-100 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Compact Icon/Action Tactile Buttons (4px base, 44x44pt minimum) */
+  .btn-icon-info {
+    @apply inline-flex min-h-[44px] min-w-[44px] select-none items-center justify-center gap-1 rounded-2xl border-2 border-info-dark bg-info-lighter px-2.5 text-xs font-bold text-info-darker shadow-tactile-info-md transition-all duration-150 ease-spring hover:bg-info-light/60 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  .btn-icon-danger {
+    @apply inline-flex h-[44px] w-[44px] select-none items-center justify-center rounded-2xl border-2 border-error-dark bg-error-lighter text-sm font-bold text-error-darker shadow-tactile-error-md transition-all duration-150 ease-spring hover:bg-error-light/60 active:translate-y-[4px] active:shadow-tactile-none;
+  }
+
+  /* Tactile Input (4.4) */
+  .input-tactile {
+    @apply min-h-[44px] w-full rounded-2xl border-2 border-grey-300 bg-white px-3.5 py-2 text-sm font-medium text-grey-800 placeholder-grey-500 outline-none transition-all duration-150 ease-spring focus:border-primary-main focus:shadow-tactile-input-focus disabled:cursor-not-allowed disabled:bg-grey-200 disabled:text-grey-500;
+  }
+
+  /* Tactile Badge / Chip (3px base - 1.1) */
+  .badge-tactile {
+    @apply inline-flex items-center gap-1.5 rounded-full border-2 px-3 py-1 text-xs font-bold;
+  }
+  .badge-success {
+    @apply badge-tactile border-success-dark bg-success-lighter text-success-darker shadow-tactile-success-sm;
+  }
+  .badge-warning {
+    @apply badge-tactile border-warning-dark bg-warning-lighter text-warning-darker shadow-tactile-warning-sm;
+  }
+  .badge-error {
+    @apply badge-tactile border-error-dark bg-error-lighter text-error-darker shadow-tactile-error-sm;
+  }
+  .badge-info {
+    @apply badge-tactile border-info-dark bg-info-lighter text-info-darker shadow-tactile-info-sm;
+  }
+  .badge-neutral {
+    @apply badge-tactile border-grey-300 bg-grey-100 text-grey-700 shadow-tactile-grey-sm;
+  }
+
+  /* Striped animated bar for GA progress (1.3) */
+  .progress-striped {
+    background-image: linear-gradient(
+      45deg,
+      rgba(255, 255, 255, 0.22) 25%,
+      transparent 25%,
+      transparent 50%,
+      rgba(255, 255, 255, 0.22) 50%,
+      rgba(255, 255, 255, 0.22) 75%,
+      transparent 75%,
+      transparent
+    );
+    background-size: 40px 40px;
+  }
+
+  /* Hover row with Grey 12% effective alpha 9.6% (2.3) */
+  .row-hover-grey:hover {
+    background-color: rgba(144, 158, 171, 0.096);
+  }
+}
+
+/* Tôn trọng prefers-reduced-motion (1.3) */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* Chế độ In / Xuất PDF (1.2) */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+  body {
+    background: #ffffff !important;
+  }
+  .card-tactile,
+  .tactile-block {
+    box-shadow: none !important;
+  }
+}
