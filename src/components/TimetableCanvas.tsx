@@ -16,7 +16,7 @@ import { dayOf, fmtDM, fmtDMY, weeksSpanDateLabel } from '../utils/weeks';
 
 const START_H = 6;
 const END_H = 21;
-const PX_PER_H = 56;
+const PX_PER_H = 60;
 const DAYS = [2, 3, 4, 5, 6, 7, 8];
 
 const SORT_OPTIONS: SortOption[] = [
@@ -116,6 +116,8 @@ interface Block {
   colorIdx: number;
   buoiSo: number;
   thu: number;
+  tietStart: number;
+  tietEnd: number;
   start: number;
   end: number;
   weeks: number[];
@@ -125,6 +127,23 @@ interface Block {
   lane: number;
   lanes: number;
   conflicted: boolean;
+}
+
+/** Tách chuỗi ghi chú thành Lớp sinh viên & Giảng viên (VD: "69PM3 - Lương Xuân Hiếu" -> studentClass: "69PM3", teacher: "Lương Xuân Hiếu") */
+function parseNoteInfo(ghiChu: string): { studentClass: string; teacher: string } {
+  const raw = ghiChu.trim();
+  if (!raw) return { studentClass: '', teacher: '' };
+  if (/^giảng viên\s*:/i.test(raw)) {
+    return { studentClass: '', teacher: raw.replace(/^giảng viên\s*:/i, '').trim() };
+  }
+  const dashIdx = raw.indexOf(' - ');
+  if (dashIdx >= 0) {
+    return {
+      studentClass: raw.slice(0, dashIdx).trim(),
+      teacher: raw.slice(dashIdx + 3).trim(),
+    };
+  }
+  return { studentClass: raw, teacher: '' };
 }
 
 /**
@@ -137,6 +156,8 @@ function sessionToBlock(sec: Section, colorIdx: number, x: ClassSession, idx: nu
     colorIdx,
     buoiSo: x.buoiSo ?? idx + 1,
     thu: x.thu,
+    tietStart: x.tietStart,
+    tietEnd: x.tietEnd,
     start: x.timeStartMinutes,
     end: x.timeEndMinutes,
     weeks: [...x.tuanHoc].sort((a, c) => a - c),
@@ -236,13 +257,61 @@ export default function TimetableCanvas({
   const [mode, setMode] = useState<'all' | 'week'>('all');
   const [week, setWeek] = useState(1);
   const [optionMenuOpen, setOptionMenuOpen] = useState(false);
+  const [printMenuOpen, setPrintMenuOpen] = useState(false);
+  const [printMode, setPrintMode] = useState<'all' | 'by_week' | null>(null);
   const [configDrawerOpen, setConfigDrawerOpen] = useState(false);
+  const [activeBlock, setActiveBlock] = useState<Block | null>(null);
   const optionMenuRef = useRef<HTMLDivElement>(null);
+  const printMenuRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setIdx(0);
     setEditingPage(false);
+    setActiveBlock(null);
   }, [solutions]);
+
+  useEffect(() => {
+    if (!printMenuOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (printMenuRef.current && !printMenuRef.current.contains(e.target as Node)) {
+        setPrintMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setPrintMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onDown);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onDown);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [printMenuOpen]);
+
+  useEffect(() => {
+    const onAfterPrint = () => setPrintMode(null);
+    window.addEventListener('afterprint', onAfterPrint);
+    return () => window.removeEventListener('afterprint', onAfterPrint);
+  }, []);
+
+  const triggerPrint = (chosen: 'all' | 'by_week') => {
+    setPrintMenuOpen(false);
+    setPrintMode(chosen);
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        window.print();
+      }, 60);
+    });
+  };
+
+  useEffect(() => {
+    if (!activeBlock) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setActiveBlock(null);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [activeBlock]);
 
   const safeIdx = Math.min(idx, Math.max(0, solutions.length - 1));
   const jumpToResult = (targetOneBased: number) => {
@@ -300,18 +369,36 @@ export default function TimetableCanvas({
     setWeek((w) => (allWeeks.includes(w) ? w : allWeeks[0]));
   }, [allWeeks]);
 
-  const blocksByDay = useMemo(() => {
+  const buildBlocksMap = (targetMode: 'all' | 'week', targetWeek: number) => {
     const res = new Map<number, Block[]>();
     DAYS.forEach((d) => {
       const dayBlocks = sections.flatMap((sec, si) =>
         sec.sessions
-          .filter((x) => x.thu === d && (mode === 'all' || x.tuanHoc.includes(week)))
+          .filter((x) => x.thu === d && (targetMode === 'all' || x.tuanHoc.includes(targetWeek)))
           .map((x, sIdx) => sessionToBlock(sec, si, x, sIdx))
       );
       res.set(d, layoutLanes(dayBlocks));
     });
     return res;
-  }, [sections, mode, week]);
+  };
+
+  const blocksByDay = useMemo(
+    () => buildBlocksMap(mode, week),
+    [sections, mode, week]
+  );
+
+  const allBlocksByDay = useMemo(
+    () => buildBlocksMap('all', minWeek),
+    [sections, minWeek]
+  );
+
+  const weeklyPrintPages = useMemo(() => {
+    if (printMode !== 'by_week') return [];
+    return allWeeks.map((w) => ({
+      weekNum: w,
+      map: buildBlocksMap('week', w),
+    }));
+  }, [printMode, allWeeks, sections]);
 
   if (!solutions.length) {
     return (
@@ -432,60 +519,70 @@ export default function TimetableCanvas({
             )}
           </div>
 
-          <button
-            type="button"
-            onClick={() => window.print()}
-            aria-label="In hoặc xuất PDF thời khóa biểu"
-            className="btn-tactile-info"
-          >
-            <span aria-hidden="true">🖨</span>
-            <span>In / Xuất PDF</span>
-          </button>
-        </div>
-      </div>
+          <div ref={printMenuRef} className="relative">
+            <button
+              type="button"
+              onClick={() => setPrintMenuOpen((o) => !o)}
+              aria-haspopup="menu"
+              aria-expanded={printMenuOpen}
+              aria-label="In hoặc xuất PDF thời khóa biểu"
+              className="btn-tactile-info"
+            >
+              <span aria-hidden="true">🖨</span>
+              <span>In / Xuất PDF</span>
+              <span aria-hidden="true" className="text-xs">
+                ▾
+              </span>
+            </button>
 
-      {/* Thanh thông tin Tổng số Kết quả & chọn nhanh Phương án (4.6) */}
-      <div className="no-print mb-3.5 flex flex-wrap items-center gap-2">
-        <span className="badge-info shrink-0 tabular-nums">
-          📋 Tổng kết quả: {solutions.length}
-        </span>
-        <div className="flex flex-1 flex-wrap items-center gap-2">
-          {solutions.slice(0, 8).map((s, i) => {
-            const active = i === safeIdx;
-            const hasIssue = s.conflicts > 0 || s.violations > 0;
-            return (
-              <button
-                key={i}
-                type="button"
-                onClick={() => setIdx(i)}
-                className={active ? 'btn-tactile-primary-md' : 'btn-tactile-neutral'}
+            {printMenuOpen && (
+              <div
+                role="menu"
+                aria-label="Chọn chế độ in PDF A4 ngang"
+                className="right-0 z-50 mt-2 w-72 animate-pop-in overflow-hidden rounded-card border-2 border-grey-300 bg-white/95 p-1.5 shadow-tactile-card backdrop-blur-md sm:absolute"
               >
-                <span>Kết quả {i + 1}</span>
-                {hasIssue ? (
-                  <span
-                    title="Phương án có trùng lịch hoặc vi phạm buổi nghỉ"
-                    className="inline-flex items-center rounded-full border border-warning-dark bg-warning-lighter px-1.5 py-0.5 text-[10px] font-bold text-warning-darker"
-                  >
-                    ⚠️
-                  </span>
-                ) : (
-                  <span aria-hidden="true" className="text-xs">
-                    ✅
-                  </span>
-                )}
-              </button>
-            );
-          })}
-          {solutions.length > 8 && (
-            <span className="text-xs font-semibold text-grey-600">
-              (+{solutions.length - 8} kết quả khác ở thanh chuyển bên dưới)
-            </span>
-          )}
+                <div className="px-3 py-1.5 text-[11px] font-bold uppercase tracking-wider text-grey-500">
+                  Xuất PDF / In khổ A4 Ngang
+                </div>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => triggerPrint('by_week')}
+                  className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-info-lighter"
+                >
+                  <span className="text-base" aria-hidden="true">📅</span>
+                  <div>
+                    <div className="text-sm font-bold text-grey-800">In theo tuần</div>
+                    <div className="text-[11px] font-medium text-grey-600">
+                      Mỗi trang A4 ngang là 1 tuần ({allWeeks.length} tuần có lịch)
+                    </div>
+                  </div>
+                </button>
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => triggerPrint('all')}
+                  className="flex w-full items-start gap-2.5 rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-info-lighter"
+                >
+                  <span className="text-base" aria-hidden="true">📚</span>
+                  <div>
+                    <div className="text-sm font-bold text-grey-800">In toàn bộ lịch trong kỳ</div>
+                    <div className="text-[11px] font-medium text-grey-600">
+                      Gộp toàn bộ học kỳ (Tuần {minWeek}–{maxWeek}) trên 1 trang
+                    </div>
+                  </div>
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Thanh Chế độ xem & Bộ chọn tuần (4.6) */}
+      {/* Thanh Chế độ xem, Bộ chọn tuần & Tổng kết quả (4.6) */}
       <div className="no-print mb-3.5 flex flex-wrap items-center gap-2.5 text-sm">
+        <span className="badge-info shrink-0 tabular-nums">
+          📋 Kết quả {safeIdx + 1} / {solutions.length} (Tổng: {solutions.length})
+        </span>
         <div className="inline-flex gap-1.5">
           <button
             type="button"
@@ -551,7 +648,7 @@ export default function TimetableCanvas({
       </div>
 
       {/* Thanh trạng thái & Chỉ số thống kê theo Option */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
+      <div className="no-print mb-4 flex flex-wrap items-center gap-2">
         <span className={`${sol.conflicts > 0 ? 'badge-error' : 'badge-success'} tabular-nums`}>
           <span>{sol.conflicts > 0 ? '⚠️' : '✅'}</span>
           <span>Trùng lịch: {sol.conflicts}</span>
@@ -609,143 +706,209 @@ export default function TimetableCanvas({
       </div>
 
       {/* Lưới thời khóa biểu (4.6) */}
-      <div
-        key={`${idx}-${mode}-${mode === 'week' ? week : 'all'}`}
-        className="animate-slide-fade overflow-x-auto rounded-2xl border-2 border-grey-300 bg-white"
-      >
-        <div className="min-w-[880px]">
-          <div className="grid" style={{ gridTemplateColumns: '54px repeat(7, 1fr)' }}>
-            {/* Ô góc trên trái */}
-            <div className="border-b-2 border-grey-300 bg-grey-100 py-2 text-center text-[11px] font-bold text-grey-600">
-              Giờ
-            </div>
+      {(() => {
+        const renderGrid = (
+          dayMap: Map<number, Block[]>,
+          gridMode: 'all' | 'week',
+          gridWeek: number,
+          isPrintFit = false
+        ) => (
+          <div className={isPrintFit ? 'print-grid-fit' : 'min-w-[880px] print-grid-fit'}>
+            <div className="grid" style={{ gridTemplateColumns: '54px repeat(7, 1fr)' }}>
+              {/* Ô góc trên trái */}
+              <div className="border-b-2 border-grey-300 bg-grey-100 py-2 text-center text-[11px] font-bold text-grey-600">
+                Giờ
+              </div>
 
-            {/* Tiêu đề các Thứ */}
-            {DAYS.map((d) => {
-              const dateObj = dayOf(week, d);
-              const isToday = mode === 'week' && isSameCalendarDay(dateObj, today);
-              return (
-                <div
-                  key={d}
-                  className={`border-b-2 border-l-2 py-2 text-center text-sm font-bold ${
-                    isToday
-                      ? 'border-primary-main bg-primary-lighter text-primary-darker'
-                      : 'border-grey-300 bg-grey-100 text-grey-800'
-                  }`}
-                >
-                  <div>{d === 8 ? 'Chủ nhật' : `Thứ ${d}`}</div>
-                  {mode === 'week' && (
-                    <div className="mt-0.5 text-[11px] font-semibold tabular-nums text-grey-600">
-                      {fmtDM(dateObj)}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-
-            {/* Cột trục giờ */}
-            <div className="relative bg-grey-50" style={{ height: hours.length * PX_PER_H }}>
-              {hours.map((h, i) => (
-                <div
-                  key={h}
-                  className="absolute right-1.5 -translate-y-2 text-[11px] font-semibold tabular-nums text-grey-600"
-                  style={{ top: i * PX_PER_H }}
-                >
-                  {String(h).padStart(2, '0')}:00
-                </div>
-              ))}
-            </div>
-
-            {/* Các cột ngày */}
-            {DAYS.map((d) => {
-              const dateObj = dayOf(week, d);
-              const isToday = mode === 'week' && isSameCalendarDay(dateObj, today);
-              return (
-                <div
-                  key={d}
-                  className={`relative border-l-2 ${
-                    isToday ? 'border-primary-main' : 'border-grey-200'
-                  }`}
-                  style={{ height: hours.length * PX_PER_H }}
-                >
-                  {/* Vùng nền Sáng / Chiều / Tối rất nhạt */}
+              {/* Tiêu đề các Thứ */}
+              {DAYS.map((d) => {
+                const dateObj = dayOf(gridWeek, d);
+                const isToday = !isPrintFit && gridMode === 'week' && isSameCalendarDay(dateObj, today);
+                return (
                   <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 bg-warning-lighter/25"
-                    style={{ top: 0, height: (12 - START_H) * PX_PER_H }}
-                  />
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 bg-info-lighter/20"
-                    style={{
-                      top: (12 - START_H) * PX_PER_H,
-                      height: (18 - 12) * PX_PER_H,
-                    }}
-                  />
-                  <div
-                    aria-hidden="true"
-                    className="pointer-events-none absolute inset-x-0 bg-secondary-lighter/20"
-                    style={{
-                      top: (18 - START_H) * PX_PER_H,
-                      height: (END_H - 18) * PX_PER_H,
-                    }}
-                  />
-
-                  {/* Vạch kẻ từng giờ */}
-                  {hours.map((h, i) => (
-                    <div
-                      key={h}
-                      className={`pointer-events-none absolute w-full border-t ${
-                        h === 12 || h === 18 ? 'border-grey-300' : 'border-grey-200'
-                      }`}
-                      style={{ top: i * PX_PER_H }}
-                    />
-                  ))}
-
-                  {/* Các khối môn học */}
-                  {(blocksByDay.get(d) || []).map((b, k) => {
-                    const top = (b.start / 60 - START_H) * PX_PER_H;
-                    const height = Math.max(28, ((b.end - b.start) / 60) * PX_PER_H - 2);
-                    const w = 100 / b.lanes;
-                    const theme = COURSE_THEMES[b.colorIdx % COURSE_THEMES.length];
-                    const weekText = formatWeeks(b.weeks, b.tuanRaw);
-                    const dateSpan = weeksSpanDateLabel(b.weeks);
-
-                    return (
-                      <div
-                        key={k}
-                        className={`tactile-block absolute z-10 overflow-hidden rounded-block border-2 p-1 text-[10px] font-semibold leading-[1.15] transition-transform duration-150 ease-spring hover:z-30 hover:-translate-y-0.5 ${
-                          theme.block
-                        } ${b.conflicted ? '!border-dashed !border-error-main ring-1 ring-error-main' : ''}`}
-                        style={{
-                          top,
-                          height,
-                          left: `calc(${b.lane * w}% + 1px)`,
-                          width: `calc(${w}% - 2px)`,
-                        }}
-                        title={`${b.sec.tenHP} (${b.sec.maHP})\nLớp ${b.sec.id} (Buổi ${b.buoiSo})\n${fmt(b.start)}–${fmt(b.end)}\nTuần ${weekText}${dateSpan ? ` (${dateSpan})` : ''}\nPhòng ${b.phong}\n${b.ghiChu}`}
-                      >
-                        <div className="truncate font-bold">
-                          {b.conflicted && <span aria-label="Trùng lịch">⚠️ </span>}
-                          {b.sec.tenHP}
-                        </div>
-                        <div className="truncate tabular-nums">
-                          {fmt(b.start)}–{fmt(b.end)}
-                        </div>
-                        <div className="truncate tabular-nums">Lớp {b.sec.id}</div>
-                        {b.phong && <div className="truncate">{b.phong}</div>}
-                        <div className="truncate font-bold tabular-nums">
-                          Tuần {weekText}
-                        </div>
+                    key={d}
+                    className={`border-b-2 border-l-2 py-2 text-center text-sm font-bold ${
+                      isToday
+                        ? 'border-primary-main bg-primary-lighter text-primary-darker'
+                        : 'border-grey-300 bg-grey-100 text-grey-800'
+                    }`}
+                  >
+                    <div>{d === 8 ? 'Chủ nhật' : `Thứ ${d}`}</div>
+                    {gridMode === 'week' && (
+                      <div className="mt-0.5 text-[11px] font-semibold tabular-nums text-grey-600">
+                        {fmtDM(dateObj)}
                       </div>
-                    );
-                  })}
-                </div>
-              );
-            })}
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Cột trục giờ */}
+              <div className="relative bg-grey-50" style={{ height: hours.length * PX_PER_H }}>
+                {hours.map((h, i) => (
+                  <div
+                    key={h}
+                    className="absolute right-1.5 -translate-y-2 text-[11px] font-semibold tabular-nums text-grey-600"
+                    style={{ top: i * PX_PER_H }}
+                  >
+                    {String(h).padStart(2, '0')}:00
+                  </div>
+                ))}
+              </div>
+
+              {/* Các cột ngày */}
+              {DAYS.map((d) => {
+                const dateObj = dayOf(gridWeek, d);
+                const isToday = !isPrintFit && gridMode === 'week' && isSameCalendarDay(dateObj, today);
+                return (
+                  <div
+                    key={d}
+                    className={`relative border-l-2 ${
+                      isToday ? 'border-primary-main' : 'border-grey-200'
+                    }`}
+                    style={{ height: hours.length * PX_PER_H }}
+                  >
+                    {/* Vùng nền Sáng / Chiều / Tối rất nhạt */}
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bg-warning-lighter/25"
+                      style={{ top: 0, height: (12 - START_H) * PX_PER_H }}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bg-info-lighter/20"
+                      style={{
+                        top: (12 - START_H) * PX_PER_H,
+                        height: (18 - 12) * PX_PER_H,
+                      }}
+                    />
+                    <div
+                      aria-hidden="true"
+                      className="pointer-events-none absolute inset-x-0 bg-secondary-lighter/20"
+                      style={{
+                        top: (18 - START_H) * PX_PER_H,
+                        height: (END_H - 18) * PX_PER_H,
+                      }}
+                    />
+
+                    {/* Vạch kẻ từng giờ */}
+                    {hours.map((h, i) => (
+                      <div
+                        key={h}
+                        className={`pointer-events-none absolute w-full border-t ${
+                          h === 12 || h === 18 ? 'border-grey-300' : 'border-grey-200'
+                        }`}
+                        style={{ top: i * PX_PER_H }}
+                      />
+                    ))}
+
+                    {/* Các khối môn học */}
+                    {(dayMap.get(d) || []).map((b, k) => {
+                      const top = (b.start / 60 - START_H) * PX_PER_H;
+                      const height = Math.max(28, ((b.end - b.start) / 60) * PX_PER_H - 2);
+                      const w = 100 / b.lanes;
+                      const theme = COURSE_THEMES[b.colorIdx % COURSE_THEMES.length];
+                      const weekText = formatWeeks(b.weeks, b.tuanRaw);
+                      const dateSpan = weeksSpanDateLabel(b.weeks);
+                      const { studentClass, teacher } = parseNoteInfo(b.ghiChu);
+                      const classLabel = studentClass ? `${studentClass} - ${b.sec.id}` : `Lớp ${b.sec.id}`;
+
+                      return (
+                        <button
+                          type="button"
+                          key={k}
+                          onClick={() => setActiveBlock(b)}
+                          className={`tactile-block absolute z-10 cursor-pointer overflow-hidden rounded-block border-2 p-1 text-left text-[10px] font-semibold leading-[1.2] transition-transform duration-150 ease-spring hover:z-30 hover:-translate-y-0.5 ${
+                            theme.block
+                          } ${b.conflicted ? '!border-dashed !border-error-main ring-1 ring-error-main' : ''}`}
+                          style={{
+                            top,
+                            height,
+                            left: `calc(${b.lane * w}% + 1px)`,
+                            width: `calc(${w}% - 2px)`,
+                          }}
+                          title={`${b.sec.tenHP}\n${classLabel}\nTiết: ${b.tietStart} - ${b.tietEnd}\nGiờ: ${fmt(b.start)} - ${fmt(b.end)}\nPhòng: ${b.phong || '—'}\n${teacher ? `GV: ${teacher}\n` : ''}Tuần ${weekText}${dateSpan ? ` (${dateSpan})` : ''}`}
+                        >
+                          <div className="truncate font-bold">
+                            {b.conflicted && <span aria-label="Trùng lịch">⚠️ </span>}
+                            {b.sec.tenHP}
+                          </div>
+                          <div className="truncate font-bold tabular-nums opacity-90">
+                            {classLabel}
+                          </div>
+                          <div className="truncate tabular-nums">
+                            Tiết: {b.tietStart} - {b.tietEnd}
+                          </div>
+                          <div className="truncate tabular-nums">
+                            Giờ: {fmt(b.start)} - {fmt(b.end)}
+                          </div>
+                          {b.phong && <div className="truncate">Phòng: {b.phong}</div>}
+                          {teacher && <div className="truncate">GV: {teacher}</div>}
+                          <div className="truncate font-bold tabular-nums">
+                            Tuần {weekText}
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      </div>
+        );
+
+        return (
+          <>
+            {/* Lưới hiển thị chính (ẩn khi in theo từng tuần hoặc khi đang ép in toàn bộ học kỳ từ chế độ tuần) */}
+            <div
+              key={`${idx}-${mode}-${mode === 'week' ? week : 'all'}`}
+              className={`animate-slide-fade overflow-x-auto rounded-2xl border-2 border-grey-300 bg-white ${
+                printMode === 'by_week' || (printMode === 'all' && mode === 'week')
+                  ? 'print:hidden'
+                  : 'print-page'
+              }`}
+            >
+              {printMode !== 'by_week' && (
+                <div className="hidden border-b-2 border-grey-300 bg-grey-100 px-3 py-1.5 text-center text-xs font-bold text-primary-darker print:block">
+                  {mode === 'week' && printMode !== 'all'
+                    ? `THỜI KHÓA BIỂU TUẦN ${week} (${fmtDMY(dayOf(week, 2))} → ${fmtDMY(dayOf(week, 8))})`
+                    : `THỜI KHÓA BIỂU TOÀN BỘ HỌC KỲ (Tuần ${minWeek} · ${fmtDMY(dayOf(minWeek, 2))} → Tuần ${maxWeek} · ${fmtDMY(dayOf(maxWeek, 8))})`}
+                </div>
+              )}
+              {renderGrid(blocksByDay, mode, week)}
+            </div>
+
+            {/* Chế độ In toàn bộ học kỳ (khi trên màn hình đang ở chế độ xem tuần) */}
+            {printMode === 'all' && mode === 'week' && (
+              <div className="hidden print:block print-page overflow-hidden rounded-2xl border-2 border-grey-300 bg-white">
+                <div className="border-b-2 border-grey-300 bg-grey-100 px-3 py-1.5 text-center text-xs font-bold text-primary-darker">
+                  THỜI KHÓA BIỂU TOÀN BỘ HỌC KỲ (Tuần {minWeek} · {fmtDMY(dayOf(minWeek, 2))} → Tuần {maxWeek} · {fmtDMY(dayOf(maxWeek, 8))})
+                </div>
+                {renderGrid(allBlocksByDay, 'all', minWeek, true)}
+              </div>
+            )}
+
+            {/* Chế độ In theo tuần: mỗi trang A4 ngang là 1 tuần */}
+            {printMode === 'by_week' && (
+              <div className="hidden print:block">
+                {weeklyPrintPages.map((pg, pIdx) => (
+                  <div
+                    key={pg.weekNum}
+                    className={`print-page overflow-hidden rounded-2xl border-2 border-grey-300 bg-white ${
+                      pIdx < weeklyPrintPages.length - 1 ? 'print-page-break' : ''
+                    }`}
+                  >
+                    <div className="border-b-2 border-grey-300 bg-grey-100 px-3 py-1.5 text-center text-xs font-bold text-primary-darker">
+                      THỜI KHÓA BIỂU TUẦN {pg.weekNum} ({fmtDMY(dayOf(pg.weekNum, 2))} → {fmtDMY(dayOf(pg.weekNum, 8))})
+                    </div>
+                    {renderGrid(pg.map, 'week', pg.weekNum, true)}
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Thanh chuyển giữa các kết quả phía dưới Canvas */}
       <div className="no-print mt-4 flex flex-wrap items-center justify-center gap-2 rounded-2xl border-2 border-grey-200 bg-grey-50 p-3">
@@ -848,7 +1011,7 @@ export default function TimetableCanvas({
       </div>
 
       {/* Chú thích (Legend) bên dưới (4.6) */}
-      <ul className="mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
+      <ul className="no-print mt-4 grid gap-2 text-xs sm:grid-cols-2 lg:grid-cols-3">
         {sections.map((s, i) => {
           const theme = COURSE_THEMES[i % COURSE_THEMES.length];
           const secWeeks = [...new Set(s.sessions.flatMap((x) => x.tuanHoc))].sort((a, b) => a - b);
@@ -871,6 +1034,91 @@ export default function TimetableCanvas({
           );
         })}
       </ul>
+
+      {/* Modal Chi tiết buổi học khi bấm vào ô trên Canvas */}
+      {activeBlock && (
+        <div
+          className="no-print fixed inset-0 z-50 flex items-end justify-center bg-black/[0.48] p-0 sm:items-center sm:p-4"
+          onClick={() => setActiveBlock(null)}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Chi tiết buổi học"
+            className="animate-pop-in w-full max-w-md overflow-hidden rounded-t-card border-2 border-grey-300 bg-white shadow-tactile-card sm:rounded-card"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3 border-b-2 border-grey-200 bg-primary-lighter px-5 py-4">
+              <div className="min-w-0">
+                <span className="badge-info mb-1.5 text-[11px] tabular-nums">
+                  {activeBlock.sec.maHP} · Lớp {activeBlock.sec.id} (Buổi {activeBlock.buoiSo})
+                </span>
+                <h3 className="text-base font-bold leading-snug text-primary-darker">
+                  {activeBlock.sec.tenHP}
+                </h3>
+              </div>
+              <button
+                type="button"
+                aria-label="Đóng chi tiết buổi học"
+                onClick={() => setActiveBlock(null)}
+                className="btn-icon-danger shrink-0"
+              >
+                ✕
+              </button>
+            </div>
+            <div className="space-y-2.5 p-5 text-sm font-medium text-grey-800">
+              <div className="flex justify-between gap-2 border-b border-grey-200 pb-2">
+                <span className="text-grey-600">Tiết</span>
+                <span className="font-bold tabular-nums">
+                  {activeBlock.tietStart} - {activeBlock.tietEnd}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2 border-b border-grey-200 pb-2">
+                <span className="text-grey-600">Giờ</span>
+                <span className="font-bold tabular-nums">
+                  {activeBlock.thu === 8 ? 'Chủ nhật' : `Thứ ${activeBlock.thu}`} ·{' '}
+                  {fmt(activeBlock.start)} - {fmt(activeBlock.end)}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2 border-b border-grey-200 pb-2">
+                <span className="text-grey-600">Tuần học</span>
+                <span className="text-right font-bold tabular-nums text-secondary-dark">
+                  Tuần {formatWeeks(activeBlock.weeks, activeBlock.tuanRaw)}
+                  {weeksSpanDateLabel(activeBlock.weeks) && (
+                    <div className="text-xs font-medium text-grey-600">
+                      ({weeksSpanDateLabel(activeBlock.weeks)})
+                    </div>
+                  )}
+                </span>
+              </div>
+              <div className="flex justify-between gap-2 border-b border-grey-200 pb-2">
+                <span className="text-grey-600">Phòng học</span>
+                <span className="font-bold">{activeBlock.phong || 'Chưa xếp phòng'}</span>
+              </div>
+              {activeBlock.ghiChu && (
+                <div className="flex justify-between gap-2">
+                  <span className="shrink-0 text-grey-600">Ghi chú / GV</span>
+                  <span className="text-right font-semibold">{activeBlock.ghiChu}</span>
+                </div>
+              )}
+              {activeBlock.conflicted && (
+                <div className="rounded-xl border-2 border-error-dark bg-error-lighter px-3 py-2 text-xs font-bold text-error-darker">
+                  ⚠️ Buổi học này đang bị trùng giờ và trùng tuần với một học phần khác.
+                </div>
+              )}
+            </div>
+            <div className="border-t-2 border-grey-200 bg-grey-50 px-5 py-3 text-right">
+              <button
+                type="button"
+                onClick={() => setActiveBlock(null)}
+                className="btn-tactile-primary-md px-5"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Modal / Drawer Sửa nhanh học phần, ngày nghỉ & option ngay trên màn hình Canvas */}
       {configDrawerOpen && selected && setSelected && constraints && setConstraints && (

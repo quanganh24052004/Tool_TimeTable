@@ -14,15 +14,62 @@ export default function ConstraintsConfig({
   const toggle = (d: number, k: 'sang' | 'chieu') =>
     onChange({ ...value, [d]: { ...value[d], [k]: !value[d][k] } });
 
+  const blockedCount = DAYS.reduce(
+    (sum, d) => sum + (value[d]?.sang ? 1 : 0) + (value[d]?.chieu ? 1 : 0),
+    0
+  );
+
+  const isWeekendOff =
+    value[7]?.sang && value[7]?.chieu && value[8]?.sang && value[8]?.chieu;
+
+  const toggleWeekend = () => {
+    const next = !isWeekendOff;
+    onChange({
+      ...value,
+      7: { sang: next, chieu: next },
+      8: { sang: next, chieu: next },
+    });
+  };
+
   return (
     <section className="card-tactile">
-      <div className="mb-1.5 flex items-center gap-2.5">
-        <span className="step-badge" aria-hidden="true">3</span>
-        <h2 className="text-base font-bold text-grey-800">Khung giờ muốn nghỉ</h2>
+      <div className="mb-1.5 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2.5">
+          <span className="step-badge" aria-hidden="true">3</span>
+          <h2 className="text-base font-bold text-grey-800">Khung giờ muốn nghỉ</h2>
+        </div>
+        {blockedCount > 0 && (
+          <span className="badge-error tabular-nums">Đã khóa {blockedCount} buổi</span>
+        )}
       </div>
       <p className="mb-3 text-xs font-medium text-grey-600">
         Bấm chọn các buổi muốn nghỉ cố định — thuật toán sẽ tránh xếp lớp vào đó.
       </p>
+
+      {/* Nút chọn nhanh tiện lợi */}
+      <div className="mb-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={toggleWeekend}
+          className={`inline-flex min-h-[34px] items-center gap-1.5 rounded-xl border-2 px-2.5 py-1 text-xs font-bold transition-all duration-150 ease-spring active:translate-y-[2px] ${
+            isWeekendOff
+              ? 'border-error-dark bg-error-lighter text-error-darker shadow-tactile-error-sm'
+              : 'border-grey-300 bg-grey-50 text-grey-700 shadow-tactile-grey-sm hover:bg-grey-100'
+          }`}
+        >
+          <span>{isWeekendOff ? '✓' : '🏖'}</span>
+          <span>Nghỉ cuối tuần (T7, CN)</span>
+        </button>
+        {blockedCount > 0 && (
+          <button
+            type="button"
+            onClick={() => onChange(emptyConstraints())}
+            className="inline-flex min-h-[34px] items-center gap-1 rounded-xl border-2 border-grey-300 bg-white px-2.5 py-1 text-xs font-bold text-grey-700 shadow-tactile-grey-sm transition-all duration-150 ease-spring hover:bg-grey-100 active:translate-y-[2px]"
+          >
+            ↺ Bỏ chọn hết
+          </button>
+        )}
+      </div>
 
       <div className="overflow-x-auto">
         <table className="w-full border-separate border-spacing-1 text-center text-sm">

@@ -248,10 +248,10 @@ export async function runGA(
   opts: GAOptions = {}
 ): Promise<{ solutions: Solution[]; slots: number }> {
   const {
-    populationSize = 120,
+    populationSize = 180,
     generations = 80,
     mutationRate = 0.15,
-    topK = 20,
+    topK = 200,
     sortOption = 'random',
     onProgress,
   } = opts;
@@ -269,41 +269,66 @@ export async function runGA(
     });
   };
 
-  let pop = generatePopulation(slots, populationSize);
-  for (let gen = 0; gen < generations; gen++) {
-    const scored = pop.map((ch) => ({
-      ch,
-      f: evaluateFitness(ch, constraints, sortOption).fitness,
-    }));
-    scored.forEach((x) => record(x.ch));
-    const tournament = () => {
-      let w = scored[rnd(scored.length)];
-      for (let k = 0; k < 2; k++) {
-        const o = scored[rnd(scored.length)];
-        if (o.f > w.f) w = o;
-      }
-      return w.ch;
-    };
-    scored.sort((a, b) => b.f - a.f);
-    const elite = scored
-      .slice(0, Math.max(2, Math.floor(populationSize * 0.05)))
-      .map((x) => x.ch);
-    const next = [...elite];
-    while (next.length < populationSize) {
-      next.push(mutate(crossover(tournament(), tournament()), slots, mutationRate));
-    }
-    pop = next;
-    if (gen % 5 === 0) {
-      onProgress?.(gen, generations);
-      await new Promise((r) => setTimeout(r, 0));
-    }
+  // Nếu tổng số tổ hợp nhỏ (<= 300, VD: chọn 1 môn 50 lớp hoặc vài môn ít lớp) -> duyệt đầy đủ 100% không bỏ sót phương án nào
+  let totalCombinations = 1;
+  for (const slot of slots) {
+    totalCombinations *= slot.candidates.length;
+    if (totalCombinations > 300) break;
   }
-  pop.forEach(record);
-  onProgress?.(generations, generations);
+
+  if (totalCombinations <= 300) {
+    const current: Section[] = [];
+    const enumerate = (depth: number) => {
+      if (depth === slots.length) {
+        record([...current]);
+        return;
+      }
+      for (const sec of slots[depth].candidates) {
+        current.push(sec);
+        enumerate(depth + 1);
+        current.pop();
+      }
+    };
+    enumerate(0);
+    onProgress?.(generations, generations);
+  } else {
+    let pop = generatePopulation(slots, populationSize);
+    for (let gen = 0; gen < generations; gen++) {
+      const scored = pop.map((ch) => ({
+        ch,
+        f: evaluateFitness(ch, constraints, sortOption).fitness,
+      }));
+      scored.forEach((x) => record(x.ch));
+      const tournament = () => {
+        let w = scored[rnd(scored.length)];
+        for (let k = 0; k < 2; k++) {
+          const o = scored[rnd(scored.length)];
+          if (o.f > w.f) w = o;
+        }
+        return w.ch;
+      };
+      scored.sort((a, b) => b.f - a.f);
+      const elite = scored
+        .slice(0, Math.max(2, Math.floor(populationSize * 0.05)))
+        .map((x) => x.ch);
+      const next = [...elite];
+      while (next.length < populationSize) {
+        next.push(mutate(crossover(tournament(), tournament()), slots, mutationRate));
+      }
+      pop = next;
+      if (gen % 5 === 0) {
+        onProgress?.(gen, generations);
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+    pop.forEach(record);
+    onProgress?.(generations, generations);
+  }
 
   const allCandidates = [...best.values()].sort((a, b) =>
     compareBySortOption(a, b, sortOption)
   );
-  const solutions = allCandidates.slice(0, topK);
+  const validOnly = allCandidates.filter((s) => s.conflicts === 0 && s.violations === 0);
+  const solutions = (validOnly.length > 0 ? validOnly : allCandidates).slice(0, topK);
   return { solutions, slots: slots.length };
 }

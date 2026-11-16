@@ -13,26 +13,61 @@ export const dayName = (d: number) => (d === 8 ? 'CN' : `T${d}`);
 
 export default function CourseSelector({ groups, selected, setSelected }: Props) {
   const [q, setQ] = useState('');
+  const [activeIndex, setActiveIndex] = useState(0);
   const [editing, setEditing] = useState<string | null>(null);
   const [secQ, setSecQ] = useState('');
   const dialogRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
+  const trimmedQ = q.trim().toLowerCase();
   const results = useMemo(() => {
-    const k = q.trim().toLowerCase();
-    if (!k) return [];
+    if (!trimmedQ) return [];
     return groups
       .filter(
         (g) =>
           !selected.some((s) => s.maHP === g.maHP) &&
-          (g.maHP.toLowerCase().includes(k) || g.tenHP.toLowerCase().includes(k))
+          (g.maHP.toLowerCase().includes(trimmedQ) ||
+            g.tenHP.toLowerCase().includes(trimmedQ) ||
+            g.sections.some((sec) => sec.id.toLowerCase().includes(trimmedQ)))
       )
-      .slice(0, 8);
-  }, [q, groups, selected]);
+      .slice(0, 12);
+  }, [trimmedQ, groups, selected]);
+
+  // Reset vị trí focus về đầu mỗi khi danh sách kết quả thay đổi
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [trimmedQ, results.length]);
+
+  // Cuộn mượt tới item đang được focus bằng bàn phím
+  useEffect(() => {
+    itemRefs.current[activeIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [activeIndex]);
 
   const add = (g: CourseGroup) => {
     setSelected([...selected, { maHP: g.maHP, selectedSectionIds: [] }]);
     setQ('');
+    setActiveIndex(0);
   };
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Escape') {
+      setQ('');
+      return;
+    }
+    if (!results.length) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setActiveIndex((prev) => (prev + 1) % results.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setActiveIndex((prev) => (prev - 1 + results.length) % results.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const target = results.length === 1 ? results[0] : results[activeIndex] ?? results[0];
+      if (target) add(target);
+    }
+  };
+
   const remove = (maHP: string) => setSelected(selected.filter((s) => s.maHP !== maHP));
   const editGroup = groups.find((g) => g.maHP === editing);
   const editCfg = selected.find((s) => s.maHP === editing);
@@ -89,6 +124,17 @@ export default function CourseSelector({ groups, selected, setSelected }: Props)
     );
   }, [editGroup, secQ]);
 
+  const alreadySelectedMatch = useMemo(() => {
+    if (!trimmedQ) return false;
+    return groups.some(
+      (g) =>
+        selected.some((s) => s.maHP === g.maHP) &&
+        (g.maHP.toLowerCase().includes(trimmedQ) ||
+          g.tenHP.toLowerCase().includes(trimmedQ) ||
+          g.sections.some((sec) => sec.id.toLowerCase().includes(trimmedQ)))
+    );
+  }, [trimmedQ, groups, selected]);
+
   return (
     <section className="card-tactile">
       <div className="mb-3 flex items-center justify-between gap-2">
@@ -96,55 +142,116 @@ export default function CourseSelector({ groups, selected, setSelected }: Props)
           <span className="step-badge" aria-hidden="true">2</span>
           <h2 className="text-base font-bold text-grey-800">Chọn học phần</h2>
         </div>
-        {selected.length > 0 && (
-          <span className="badge-info tabular-nums">{selected.length} môn</span>
-        )}
+        <div className="flex items-center gap-2">
+          {selected.length > 0 && (
+            <span className="badge-info tabular-nums">{selected.length} môn</span>
+          )}
+          {selected.length > 1 && (
+            <button
+              type="button"
+              onClick={() => setSelected([])}
+              className="text-xs font-bold text-error-dark underline-offset-2 hover:underline"
+            >
+              Xóa hết
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="relative">
         <input
           value={q}
           onChange={(e) => setQ(e.target.value)}
+          onKeyDown={handleSearchKeyDown}
           disabled={!groups.length}
-          aria-label="Tìm kiếm học phần theo Mã HP hoặc Tên HP"
-          placeholder={groups.length ? '🔎 Tìm theo Mã HP hoặc Tên HP...' : 'Hãy tải dữ liệu trước'}
-          className="input-tactile"
+          aria-label="Tìm kiếm theo Mã HP, Mã lớp hoặc Tên môn"
+          aria-activedescendant={results.length > 0 ? `course-opt-${activeIndex}` : undefined}
+          placeholder={
+            groups.length
+              ? '🔎 Tìm theo Mã lớp, Mã HP hoặc Tên môn (↑↓ + Enter)...'
+              : 'Hãy tải dữ liệu trước'
+          }
+          className={`input-tactile ${q ? 'pr-9' : ''}`}
         />
-        {results.length > 0 && (
-          <ul
-            role="listbox"
-            className="absolute z-30 mt-2 max-h-64 w-full animate-pop-in overflow-auto rounded-card border-2 border-grey-300 bg-white p-1.5 shadow-tactile-card"
+        {q && (
+          <button
+            type="button"
+            aria-label="Xóa từ khóa tìm kiếm"
+            onClick={() => setQ('')}
+            className="absolute right-2.5 top-1/2 flex h-7 w-7 -translate-y-1/2 items-center justify-center rounded-full bg-grey-200 text-xs font-bold text-grey-600 hover:bg-grey-300 hover:text-grey-800"
           >
-            {results.map((g) => (
-              <li key={g.maHP}>
-                <button
-                  type="button"
-                  onClick={() => add(g)}
-                  className="row-hover-grey flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors"
-                >
-                  <span className="min-w-0 truncate">
-                    <b className="font-bold tabular-nums text-primary-darker">{g.maHP}</b>
-                    <span className="text-grey-800"> – {g.tenHP}</span>
-                  </span>
-                  <span className="badge-neutral shrink-0 tabular-nums">
-                    +{g.sections.length} lớp
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
+            ✕
+          </button>
+        )}
+
+        {trimmedQ && (
+          <div className="absolute z-30 mt-2 max-h-64 w-full animate-pop-in overflow-auto rounded-card border-2 border-grey-300 bg-white p-1.5 shadow-tactile-card">
+            {results.length > 0 ? (
+              <ul role="listbox">
+                {results.map((g, i) => {
+                  const isFocused = i === activeIndex;
+                  const matchedSec = g.sections.find((sec) =>
+                    sec.id.toLowerCase().includes(trimmedQ)
+                  );
+                  return (
+                    <li key={g.maHP}>
+                      <button
+                        ref={(el) => {
+                          itemRefs.current[i] = el;
+                        }}
+                        id={`course-opt-${i}`}
+                        type="button"
+                        role="option"
+                        aria-selected={isFocused}
+                        onMouseEnter={() => setActiveIndex(i)}
+                        onClick={() => add(g)}
+                        className={`flex min-h-[44px] w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-sm transition-colors ${
+                          isFocused
+                            ? 'bg-primary-lighter text-primary-darker ring-2 ring-primary-main'
+                            : 'row-hover-grey text-grey-800'
+                        }`}
+                      >
+                        <span className="min-w-0 truncate">
+                          <b className="font-bold tabular-nums text-primary-main">{g.maHP}</b>
+                          <span> – {g.tenHP}</span>
+                          {matchedSec && (
+                            <span className="ml-1.5 rounded bg-info-lighter px-1.5 py-0.5 text-[11px] font-bold tabular-nums text-info-darker">
+                              Lớp {matchedSec.id}
+                            </span>
+                          )}
+                        </span>
+                        <span className="badge-neutral shrink-0 tabular-nums">
+                          +{g.sections.length} lớp
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : alreadySelectedMatch ? (
+              <div className="rounded-xl bg-warning-lighter px-3 py-3 text-center text-xs font-bold text-warning-darker">
+                ⚠️ Học phần / mã lớp khớp với “{q.trim()}” đã có trong danh sách chọn bên dưới.
+              </div>
+            ) : (
+              <div className="rounded-xl border-2 border-error-dark bg-error-lighter px-3 py-3 text-center text-xs font-bold text-error-darker">
+                ❌ Không tìm thấy “{q.trim()}” — mã lớp hoặc môn học này không có hoặc kỳ này không mở.
+              </div>
+            )}
+          </div>
         )}
       </div>
 
-      <ul className="mt-3 space-y-2.5">
+      <ul className="mt-3 max-h-[360px] space-y-2.5 overflow-y-auto pr-0.5">
         {selected.length === 0 && (
-          <li className="rounded-2xl border-2 border-dashed border-grey-300 bg-grey-100 px-3 py-4 text-center text-xs font-medium text-grey-600">
-            Chưa có học phần nào trong danh sách chọn.
+          <li className="rounded-2xl border-2 border-dashed border-grey-300 bg-grey-100 px-3 py-5 text-center text-xs font-medium text-grey-600">
+            Chưa có học phần nào. Gõ mã lớp, mã môn hoặc tên môn vào ô tìm kiếm phía trên để thêm.
           </li>
         )}
         {selected.map((s) => {
           const g = groups.find((x) => x.maHP === s.maHP);
           if (!g) return null;
+          const isFiltered =
+            s.selectedSectionIds.length > 0 && s.selectedSectionIds.length < g.sections.length;
           const n = s.selectedSectionIds.length || g.sections.length;
           return (
             <li
@@ -152,12 +259,18 @@ export default function CourseSelector({ groups, selected, setSelected }: Props)
               className="animate-pop-in flex items-center justify-between gap-2 rounded-2xl border-2 border-grey-300 bg-grey-50 p-2.5 shadow-tactile-grey-sm"
             >
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-bold text-grey-800">{g.tenHP}</div>
+                <div className="truncate text-sm font-bold text-grey-800" title={g.tenHP}>
+                  {g.tenHP}
+                </div>
                 <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs font-medium tabular-nums text-grey-600">
                   <span className="font-bold text-grey-700">#{g.maHP}</span>
                   <span>·</span>
-                  <span className="badge-info px-2 py-0.5 text-[11px] tabular-nums">
-                    {n}/{g.sections.length} lớp
+                  <span
+                    className={`${
+                      isFiltered ? 'badge-warning' : 'badge-info'
+                    } px-2 py-0.5 text-[11px] tabular-nums`}
+                  >
+                    {isFiltered ? `Đã lọc ${n}/${g.sections.length} lớp` : `Tất cả ${g.sections.length} lớp`}
                   </span>
                 </div>
               </div>
@@ -227,7 +340,7 @@ export default function CourseSelector({ groups, selected, setSelected }: Props)
                 value={secQ}
                 onChange={(e) => setSecQ(e.target.value)}
                 aria-label="Lọc theo mã lớp hoặc ghi chú khóa"
-                placeholder="🔎 Lọc theo mã lớp / ghi chú khóa (vd: 65, XD-HCM)..."
+                placeholder="🔎 Lọc theo mã lớp / tên giảng viên / khóa (vd: 68MHT, Bản)..."
                 className="input-tactile"
               />
               <div className="flex flex-wrap items-center gap-2">
@@ -252,13 +365,18 @@ export default function CourseSelector({ groups, selected, setSelected }: Props)
                   onClick={() => setIds([allIds[0]])}
                   className="btn-tactile-neutral px-3 py-1.5 text-xs"
                 >
-                  Bỏ chọn (giữ 1)
+                  Chỉ giữ lớp đầu tiên
                 </button>
               </div>
             </div>
 
             {/* Section List */}
             <ul className="flex-1 divide-y-2 divide-grey-200 overflow-y-auto px-2 py-1">
+              {filteredSections.length === 0 && (
+                <li className="px-4 py-8 text-center text-sm font-bold text-error-darker">
+                  ❌ Không có lớp nào khớp với “{secQ.trim()}” (không có hoặc không mở).
+                </li>
+              )}
               {filteredSections.map((sec) => {
                 const isChecked = checked(sec.id);
                 return (
